@@ -5,11 +5,17 @@ import { useEffect, useState } from "react";
 import { protectedFetch } from "@/lib/api";
 
 function formatDate(value) {
+  if (!value) return "—";
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return "—";
+
   return new Intl.DateTimeFormat("en-GB", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "Asia/Dhaka",
-  }).format(new Date(value));
+  }).format(date);
 }
 
 export default function MyEventsPage() {
@@ -30,12 +36,16 @@ export default function MyEventsPage() {
       try {
         const result = await protectedFetch("/api/manage/events");
 
+        if (!Array.isArray(result.data)) {
+          throw new Error("Invalid event list received.");
+        }
+
         if (active) {
           setEvents(result.data);
         }
       } catch (error) {
         if (active) {
-          setError(error.message);
+          setError(error.message || "Could not load events.");
         }
       } finally {
         if (active) {
@@ -51,12 +61,16 @@ export default function MyEventsPage() {
     };
   }, [retryCount]);
 
-  async function handleDelete(event) {
+  async function handleCancel(event) {
+    if (deletingId !== null || event.status !== "published") {
+      return;
+    }
+
     const confirmed = window.confirm(
       `Cancel "${event.title}"? It will be removed from public listings.`
     );
 
-    if (!confirmed || deletingId) return;
+    if (!confirmed) return;
 
     setDeletingId(event._id);
     setError("");
@@ -76,9 +90,9 @@ export default function MyEventsPage() {
         )
       );
 
-      setMessage(result.message);
+      setMessage(result.message || "Event cancelled successfully.");
     } catch (error) {
-      setError(error.message);
+      setError(error.message || "Could not cancel event.");
     } finally {
       setDeletingId(null);
     }
@@ -114,6 +128,7 @@ export default function MyEventsPage() {
           <button
             type="button"
             className="btn btn-sm"
+            disabled={loading || deletingId !== null}
             onClick={() => setRetryCount((count) => count + 1)}
           >
             Reload
@@ -135,64 +150,105 @@ export default function MyEventsPage() {
             className="loading loading-spinner loading-lg"
           />
         </div>
-      ) : events.length === 0 && !error ? (
-        <div className="mt-8 rounded-2xl border border-dashed border-base-300 p-10 text-center">
-          <h2 className="text-xl font-bold">No events yet</h2>
-          <p className="mt-2">Create your first campus event.</p>
-        </div>
+      ) : events.length === 0 ? (
+        !error && (
+          <div className="mt-8 rounded-2xl border border-dashed border-base-300 p-10 text-center">
+            <h2 className="text-xl font-bold">No events yet</h2>
+            <p className="mt-2">Create your first campus event.</p>
+          </div>
+        )
       ) : (
         <div className="mt-8 overflow-x-auto rounded-xl border border-base-300">
           <table className="table">
             <thead>
               <tr>
-                <th>Event</th>
-                <th>Start · Bangladesh time</th>
-                <th>Capacity</th>
-                <th>Status</th>
-                <th>Action</th>
+                <th scope="col">Event</th>
+                <th scope="col">Start · Bangladesh time</th>
+                <th scope="col">Capacity</th>
+                <th scope="col">Status</th>
+                <th scope="col">Action</th>
               </tr>
             </thead>
 
             <tbody>
-              {events.map((event) => (
-                <tr key={event._id}>
-                 <td>
-  <div className="flex items-center gap-2">
-    <Link
-  href={`/dashboard/participants/${event._id}`}
-  className="btn btn-outline btn-sm"
->
-  Participants
-</Link>
-    {event.status === "published" && (
-      <Link
-        href={`/dashboard/edit-event/${event._id}`}
-        className="btn btn-primary btn-sm"
-      >
-        
-        Edit
-      </Link>
-    )}
+              {events.map((event) => {
+                const isPublished = event.status === "published";
+                const isCancelled = event.status === "cancelled";
+                const isCancelling = deletingId === event._id;
 
-    <button
-      type="button"
-      className="btn btn-error btn-outline btn-sm"
-      disabled={
-        deletingId !== null ||
-        event.status === "cancelled"
-      }
-      onClick={() => handleDelete(event)}
-    >
-      {deletingId === event._id
-        ? "Cancelling..."
-        : event.status === "cancelled"
-          ? "Cancelled"
-          : "Cancel Event"}
-    </button>
-  </div>
-</td>
-                </tr>
-              ))}
+                return (
+                  <tr key={event._id}>
+                    <td className="min-w-56">
+                      <p className="font-semibold">
+                        {event.title || "Untitled event"}
+                      </p>
+
+                      <p className="mt-1 text-sm text-base-content/60">
+                        {event.category || "—"}
+                      </p>
+                    </td>
+
+                    <td className="whitespace-nowrap">
+                      {formatDate(event.startDate)}
+                    </td>
+
+                    <td>{event.capacity ?? "—"}</td>
+
+                    <td>
+                      <span
+                        className={`badge ${
+                          isPublished
+                            ? "badge-success"
+                            : isCancelled
+                              ? "badge-error"
+                              : "badge-ghost"
+                        }`}
+                      >
+                        {isPublished
+                          ? "Published"
+                          : isCancelled
+                            ? "Cancelled"
+                            : event.status || "Unknown"}
+                      </span>
+                    </td>
+
+                    <td>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          href={`/dashboard/participants/${event._id}`}
+                          className="btn btn-outline btn-sm"
+                        >
+                          Participants
+                        </Link>
+
+                        {isPublished && (
+                          <Link
+                            href={`/dashboard/edit-event/${event._id}`}
+                            className="btn btn-primary btn-sm"
+                          >
+                            Edit
+                          </Link>
+                        )}
+
+                        <button
+                          type="button"
+                          className="btn btn-error btn-outline btn-sm"
+                          disabled={
+                            deletingId !== null || !isPublished
+                          }
+                          onClick={() => handleCancel(event)}
+                        >
+                          {isCancelling
+                            ? "Cancelling..."
+                            : isCancelled
+                              ? "Cancelled"
+                              : "Cancel Event"}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
