@@ -1,11 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  /* config options here */
   experimental: {
     agentFeedback: true,
   },
+
   cacheComponents: true,
+
   partialPrefetching: true,
+
   turbopack: {
     rules: {
       "*.css": {
@@ -13,6 +15,19 @@ const nextConfig = {
         as: "*.css",
       },
     },
+  },
+
+  async rewrites() {
+    const backendURL = (
+      process.env.API_SERVER_URL || "http://localhost:8000"
+    ).replace(/\/+$/, "");
+
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${backendURL}/api/:path*`,
+      },
+    ];
   },
 };
 
